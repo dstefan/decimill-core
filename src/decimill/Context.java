@@ -15,6 +15,8 @@ import java.util.Map;
  * Context is a key class of the decimill framework serving as a container for
  * all models, scenarios and functions. It provides a simple cacheing mechanism
  * that is used by QueryCompliler to improve the performance of the evaluation.
+ * 
+ * Here's what it should look like:
  * <p>
  * <code>
  * Context ctx = new Context();
