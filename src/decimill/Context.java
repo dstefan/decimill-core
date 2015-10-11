@@ -16,7 +16,7 @@ import java.util.Map;
  * all models, scenarios and functions. It provides a simple cacheing mechanism
  * that is used by QueryCompliler to improve the performance of the evaluation.
  * 
- * Here's what it should look like:
+ * Cotext is initialised simply by calling:
  * <p>
  * <code>
  * Context ctx = new Context();
