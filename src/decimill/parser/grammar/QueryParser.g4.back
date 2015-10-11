@@ -1,0 +1,191 @@
+
+parser grammar QueryParser;
+
+@header {
+    package decimill.parser;
+    import decimill.*;
+    import decimill.lang.*;
+    import decimill.query.*;
+    import decimill.expression.*;
+    import org.apache.commons.lang3.StringUtils;
+}
+
+tokens {
+    EOL, INLINE, BLOCK, ANY,
+    UDIST,
+    NAME, ID, NUM, STRING, EQ, COMMA, LPR, RPR, APOS, DOT,
+    PLUS, MINUS, TIMES, DIV, POW, LT, GT, LBR, RBR, LCB, RCB, BNL, BREAK, NL, WS, ERR
+}
+
+@members {
+    Context ctx;
+    QueryCompiler compiler;
+    TokenStreamRewriter buffer;
+}
+
+parse [Context c, QueryCompiler q, TokenStreamRewriter b]
+
+    @init {
+        ctx = c;
+        compiler = q;
+        buffer = b;
+    }
+
+    : start_line
+    | EOF
+    ;
+
+start_line
+    : BLOCK code_block
+    | line
+    | EOF
+    ;
+
+line
+    : ANY line
+    | code_inline line
+    | eol = EOL start_line
+    | EOF
+    ;
+
+code_inline
+    : INLINE code BREAK
+    | in = INLINE EQ code br = BREAK        { buffer.insertBefore($in, compiler.print($code.value)); buffer.delete($in, $br); }
+    ;
+
+code returns [DM_Object value]
+    : eval                                  { $value = $eval.value; }
+    | assignment                            { $value = $assignment.value; }
+    | EOF
+    ;
+
+code_block
+    : assignment
+        ( code_block_end
+        | BNL code_block
+        )
+    | BNL code_block
+    | code_block_end
+    | EOF
+    ;
+
+code_block_end
+    : NL start_line
+    | EOF
+    ;
+
+eval returns [DM_Object value]
+    : expr_eval                             {
+                                                try {
+                                                    $value = compiler.eval($expr_eval.expr);
+                                                } catch (RuntimeException e) {
+                                                    throw new CompilerException(e.getMessage(), $eval.start.getLine(), $eval.start.getCharPositionInLine());
+                                                }
+                                            }
+    ;
+
+expr_eval returns [ExprNode expr]
+    : expr_var                              { $expr = $expr_var.expr; }
+    | expr_add                              { $expr = $expr_add.expr; }
+    ;
+
+assignment returns [DM_Object value]
+    : expr_var EQ BNL? expr_add             {
+                                                try {
+                                                    $value = compiler.eval($expr_var.expr.toPointer(), $expr_add.expr);
+                                                } catch (RuntimeException e) {
+                                                    throw new CompilerException(e.getMessage(), $expr_add.start.getLine(), $expr_add.start.getCharPositionInLine());
+                                                }
+                                            }
+    | expr_model_ref EQ BNL? expr_add       {
+                                                try {
+                                                    ctx.assign($expr_model_ref.expr.toReference(), $expr_add.expr);
+                                                } catch (RuntimeException e) {
+                                                    throw new CompilerException(e.getMessage(), $expr_model_ref.start.getLine(), $expr_model_ref.start.getCharPositionInLine());
+                                                }
+                                             }
+    ;
+
+expr_add returns [ExprNode expr]
+    : expr_sub                              { $expr = $expr_sub.expr; }
+        ( BNL? PLUS BNL? expr_sub           { $expr = new PlusNode($expr, $expr_sub.expr); }
+        )*
+    ;
+
+expr_sub returns [ExprNode expr]
+    : expr_mult                             { $expr = $expr_mult.expr; }
+        ( BNL? MINUS BNL? expr_mult         { $expr = new MinusNode($expr, $expr_mult.expr); }
+        )*
+    ;
+
+expr_mult returns [ExprNode expr]
+    : expr_div                              { $expr = $expr_div.expr; }
+        ( BNL? TIMES BNL? expr_div          { $expr = new TimesNode($expr, $expr_div.expr); }
+        )*
+    ;
+
+expr_div returns [ExprNode expr]
+    : expr_pow                              { $expr = $expr_pow.expr; }
+        ( BNL? DIV BNL? expr_pow            { $expr = new DivNode($expr, $expr_pow.expr); }
+        )*
+    ;
+
+expr_pow returns [ExprNode expr]
+    : expr_lt                               { $expr = $expr_lt.expr; }
+        ( BNL? POW BNL? expr_lt             { $expr = new PowNode($expr, $expr_lt.expr); }
+        )*
+    ;
+
+expr_lt returns [ExprNode expr]
+    : expr_gt                               { $expr = $expr_gt.expr; }
+        ( BNL? LT BNL? expr_gt              { $expr = new LTNode($expr, $expr_gt.expr); }
+        )*
+    ;
+
+expr_gt returns [ExprNode expr]
+    : expr_atom                             { $expr = $expr_atom.expr; }
+        ( BNL? GT BNL? expr_atom            { $expr = new GTNode($expr, $expr_atom.expr); }
+        )*
+    ;
+
+expr_atom returns [ExprNode expr]
+    : expr_var                              { $expr = $expr_var.expr; }
+    | expr_ref                              { $expr = $expr_ref.expr; }
+    | expr_model_ref                        { $expr = $expr_model_ref.expr; }
+    | constant                              { $expr = $constant.expr; }
+    | expr_func                             { $expr = $expr_func.expr; }
+    | LPR expr_add RPR                      { $expr = $expr_add.expr; }
+    | str = STRING                          { $expr = new StringNode(StringUtils.strip($str.text, "\"")); }
+    | LCB expr_add                          { ArrayNode array = new ArrayNode(); array.add($expr_add.expr); }
+        ( COMMA expr_add                    { array.add($expr_add.expr); }
+        )* RCB                              { $expr = array; }
+    ;
+
+expr_var returns [PointerNode expr]
+    : id = ID                               { $expr = new PointerNode($id.text); }
+    | id = ID LBR name = NAME RBR           { $expr = new PointerNode($id.text, $name.text); }
+    ;
+
+expr_ref returns [ExprNode expr]
+    : name = NAME DOT id = ID
+        ( APOS                              { $expr = new EvalNode($name.text, $id.text); }
+        | APOS scnrName = NAME              { $expr = new EvalNode($name.text, $id.text, $scnrName.text); }
+        )
+    ;
+
+expr_model_ref returns [RefNode expr]
+    : name = NAME DOT id = ID               { $expr = new RefNode($name.text, $id.text); }
+    ;
+
+expr_func returns [FuncNode expr]
+    : id = ID LPR expr_add                  { ArrayList<ExprNode> params = new ArrayList<>(); params.add($expr_add.expr); }
+        ( COMMA expr_add                    { params.add($expr_add.expr); }
+        )* RPR                              { $expr = new FuncNode($id.text, params); }
+    ;
+
+constant returns [ExprNode expr]
+    : n = NUM                                       { $expr = new DoubleNode(Double.parseDouble($n.text)); }
+    | LBR lb = NUM COMMA ub = NUM RBR               { $expr = new Dist90CINode(Double.parseDouble($lb.text), Double.parseDouble($ub.text)); }
+    | LBR a = NUM COMMA b = NUM COMMA c = NUM RBR   { $expr = new DistTriangNode(Double.parseDouble($a.text), Double.parseDouble($b.text), Double.parseDouble($c.text)); }
+    | LBR a = NUM COMMA b = NUM RBR UDIST           { $expr = new DistUnifNode(Double.parseDouble($a.text), Double.parseDouble($b.text)); }
+    ;

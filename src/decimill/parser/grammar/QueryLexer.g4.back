@@ -1,0 +1,47 @@
+
+lexer grammar QueryLexer;
+
+@header {
+    package decimill.parser;
+}
+
+EOL     : [\n\r]+;
+INLINE  : '`' -> pushMode(Code);
+BLOCK   : ( '\t' | '    ' ) [\t ]* -> pushMode(Code);
+ANY     : .;
+
+mode Code;
+
+    UDIST   : 'u';
+
+    NAME    : [A-Z] ( [a-zA-Z0-9 ]* [a-zA-Z0-9] )?;
+    ID      : [a-z][a-zA-Z0-9_]*;
+    NUM     : [0-9]+ ('.' [0-9]+)?;
+    STRING  : '"' ~[\r\n"]+ '"';
+
+    EQ      : '=';
+    COMMA   : ',';
+    LPR     : '(';
+    RPR     : ')';
+    APOS    : '\'';
+    DOT     : '.';
+
+    PLUS    : '+';
+    MINUS   : '-';
+    TIMES   : '*';
+    DIV     : '/';
+    POW     : '^';
+    LT      : '<';
+    GT      : '>';
+    LBR     : '[';
+    RBR     : ']';
+    LCB     : '{';
+    RCB     : '}';
+
+    BNL     : ( [\n\r]+ ( '\t' | '    ' ) [\t ]* )+;
+
+    BREAK   : '`' -> popMode;
+    NL      : [\n\r]+ -> popMode;
+
+    WS      : (' ' | '\t') -> channel(HIDDEN);
+    ERR     : .;
